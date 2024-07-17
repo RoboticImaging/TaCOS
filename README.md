@@ -7,7 +7,7 @@ Please refer to the Stereo Camera Design folder for the implementation of the st
 We use the [**CARLA Simulator**](https://carla.org//) version 0.9.15 as the virtual environment, please follow the official installation instructions to install the simulator.
 
 ### Camera Optimization
-To start the optimization, first start to run the CARLA simulator then run main.py.
+To start the optimization, first start to run the CARLA simulator then run main.py. The pretrained PSMNet can be downloaded from their [**GitHub repository**](https://github.com/JiaRenChang/PSMNet).
 
 ## Monocular Camera Design
 ### Simulator Setup
@@ -27,4 +27,4 @@ The simulator that procedurally generates virtual indoor environments is placed 
 5. Run the .unproject file or build from source code by generating project files with this file.
 
 ### Camera Optimization
-The codes that optimize the camera are placed in the CameraOptimization folder. To start the camera optimization, first click the Run button in the Unreal Engine Editor and then run GeneticAlgorithmMain.py. The pretrained PSMNet can be downloaded from their [**GitHub repository**](https://github.com/JiaRenChang/PSMNet).
+The codes that optimize the camera are placed in the CameraOptimization folder. To start the camera optimization, first click the Run button in the Unreal Engine Editor and then run GeneticAlgorithmMain.py.
