@@ -7,7 +7,7 @@ Please refer to the Stereo Camera Design folder for the implementation of the st
 We use the [**CARLA Simulator**](https://carla.org//) version 0.9.15 as the virtual environment, please follow the official installation instructions to install the simulator.
 
 ### Camera Optimization
-Please run main.py to start the camera optimization process.
+To start the optimization, first start to run the CARLA simulator then run main.py.
 
 ## Monocular Camera Design
 ### Simulator Setup
