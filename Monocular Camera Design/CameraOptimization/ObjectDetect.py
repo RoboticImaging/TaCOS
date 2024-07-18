@@ -112,8 +112,6 @@ class ObjectDetectionTrainer:
 
         if ifSaved:
             self.model = torch.load('./saved_model.pth')
-        else:
-            self.model = torch.load('./pretrained.pth')
 
         self.model.to(self.device)
         self.model.train()
