@@ -74,7 +74,7 @@ FString ASofa5::GetBoundingPointsOnScreen(int ResX, int ResY)
 
 	if (WasComponentRenderedRecently(RenderTime, SofaMesh))
 	{
-		BoxPositions += GetBoundingsOnScreen("Sofa", "0", SofaMesh, GetWorld(), ResX, ResY);
+		BoxPositions += GetBoundingsOnScreen("Sofa", "10", SofaMesh, GetWorld(), ResX, ResY);
 	}
 
 	if (WasComponentRenderedRecently(RenderTime, TableMesh))
