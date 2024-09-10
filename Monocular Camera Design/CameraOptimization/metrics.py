@@ -6,7 +6,7 @@ import torch
 from collections import Counter
 
 # Computer mean AP
-def mean_average_precision(pred_boxes, true_boxes, iou_threshold=0.5, box_format="corners", num_classes=8):
+def mean_average_precision(pred_boxes, true_boxes, iou_threshold=0.5, box_format="corners", num_classes=11):
 
     # list storing all AP for respective classes
     average_precisions = []
