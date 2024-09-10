@@ -23,15 +23,16 @@ import logging
 from numpy import random
 import numpy as np
 import cv2
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, ROUND_HALF_DOWN
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from PSMNet import PSMNet
-from generate_traffic import generate_traffic, destroy_traffic
+from generate_traffic import TrafficGenerator
 from camera import Camera
 from ga_utils import GAUtils
 from dataset import get_item
+
 
 def main():
     argparser = argparse.ArgumentParser(
@@ -50,7 +51,7 @@ def main():
     argparser.add_argument(
         '-n', '--number-of-vehicles',
         metavar='N',
-        default=1,
+        default=48,
         type=int,
         help='Number of vehicles (default: 30)')
     argparser.add_argument(
@@ -148,19 +149,29 @@ def main():
     model = nn.DataParallel(model)
     ckpt = torch.load('./pretrained_model_KITTI2015.tar')
     model.load_state_dict(ckpt['state_dict'])
+    ego_vehicle_idx = 9
     best_fitness = 0
     best_loss = 999
     sol_per_pop = 5
-    num_generation = 50
+    num_generation = 200
     if_model_train = True
     if_ga = True
+    route_finished = False
     ga = GAUtils()
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(device)
 
+    log_file = "./training_log.txt"
+    if os.path.exists(log_file):
+        os.remove(log_file)
+
+    # Verify which parameters are frozen
+    for name, param in model.named_parameters():
+        print(f'{name}: requires_grad = {param.requires_grad}')
+
     # Optimizer for PSMNet
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999))
+    optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.0001, betas=(0.9, 0.999))
 
     # Generate traffic
     try:
@@ -194,16 +205,18 @@ def main():
             settings.no_rendering_mode = True
         world.apply_settings(settings)
 
-        vehicles_list, walkers_list, all_id, all_actors = generate_traffic(world, client, args, traffic_manager,
-                                                                           synchronous_master)
+        tg = TrafficGenerator(world, traffic_manager)
+        tg.create_vehicle_bp(args)
+        vehicles_list, walkers_list, all_actors = tg.generate_traffic(client, args, synchronous_master)
 
         # Spawn Camera
         all_vehicle_actors = world.get_actors(vehicles_list)
-        vehicle = all_vehicle_actors[0]
+        tg.set_routes(all_vehicle_actors)
+        vehicle = all_vehicle_actors[ego_vehicle_idx]
+
         cam = Camera(world)
         cameras = cam.spawn_cam(vehicle)
 
-        # Create a queue to store and retrieve the sensor data
         left_queue, right_queue, depth_queue = cam.listen_to_queue(cameras)
 
         # wait for a tick to ensure client receives the last transform of the walkers we have just created
@@ -211,6 +224,35 @@ def main():
             world.wait_for_tick()
         else:
             world.tick()
+
+        # Get scene captures
+        left_img = left_queue.get()
+        left_img = np.reshape(np.copy(left_img.raw_data), (left_img.height, left_img.width, 4))
+        left_img_disp = left_img[:, :, :3]
+
+        right_img = right_queue.get()
+        right_img = np.reshape(np.copy(right_img.raw_data), (right_img.height, right_img.width, 4))
+        right_img_disp = right_img[:, :, :3]
+
+        depth_img = depth_queue.get()
+        depth_img.convert(carla.ColorConverter.Depth)
+        depth_img = np.array(depth_img.raw_data).reshape((depth_img.height, depth_img.width, 4))[:, :, :3]
+
+        cv2.imshow('LeftStream', left_img_disp)
+        cv2.namedWindow('LeftStream', cv2.WINDOW_AUTOSIZE)
+        cv2.waitKey(1)
+
+        cv2.imshow('RightStream', right_img_disp)
+        cv2.namedWindow('RightStream', cv2.WINDOW_AUTOSIZE)
+        cv2.waitKey(1)
+
+        cv2.imshow('DepthStream', depth_img)
+        cv2.namedWindow('DepthStream', cv2.WINDOW_AUTOSIZE)
+        cv2.waitKey(1)
+
+        cv2.imshow('GTDepthStream', depth_img)
+        cv2.namedWindow('GTDepthStream', cv2.WINDOW_AUTOSIZE)
+        cv2.waitKey(1)
 
         print('spawned %d vehicles and %d walkers, press Ctrl+C to exit.' % (len(vehicles_list), len(walkers_list)))
 
@@ -221,6 +263,7 @@ def main():
         new_population = ga.get_population(sol_per_pop, if_ga)
 
         model = model.to(device)
+        epoch = 0
 
         # Every iteration
         for generation in range(num_generation):
@@ -230,8 +273,26 @@ def main():
             disp_loss = np.empty(sol_per_pop)
 
             for i in range(sol_per_pop):
+
                 for camera in cameras:
                     camera.destroy()
+
+                if route_finished:
+                    epoch += 1
+
+                    tg.destroy_traffic(client, all_actors)
+
+                    time.sleep(0.5)
+
+                    vehicles_list, walkers_list, all_actors = tg.generate_traffic(client, args, synchronous_master)
+
+                    all_vehicle_actors = world.get_actors(vehicles_list)
+                    tg.set_routes(all_vehicle_actors)
+                    vehicle = all_vehicle_actors[ego_vehicle_idx]
+
+                    time.sleep(0.5)
+
+                    route_finished = False
 
                 # Update camera parameters
                 cam.update_config(new_population[i][0], new_population[i][1])
@@ -260,7 +321,7 @@ def main():
                     depth_img = np.array(depth_img.raw_data).reshape((depth_img.height, depth_img.width, 4))[:, :, :3]
 
                     # Convert depth to disparity
-                    disparity = cam.depth_to_disparity(depth_img)
+                    disparity, depth_gt = cam.depth_to_disparity(depth_img)
 
                     # Train PSMNet
                     if if_model_train:
@@ -270,7 +331,7 @@ def main():
                         buffer["right"].append(right_img)
                         buffer["gt"].append(disparity)
 
-                        BUFFER_SIZE = 6
+                        BUFFER_SIZE = 4
                         if len(buffer["left"]) > BUFFER_SIZE:
                             buffer["left"].pop(0)
                             buffer["right"].pop(0)
@@ -292,7 +353,7 @@ def main():
 
                                 left = left.unsqueeze(0).to(device)
                                 right = right.unsqueeze(0).to(device)
-                                gt = gt.to(device)
+                                gt = gt.to(device=device, dtype=torch.float32)
 
                                 mask = gt < maxdisp
                                 mask.detach_()
@@ -307,21 +368,22 @@ def main():
                                 outputs3.append(output3[mask])
                                 gts.append(gt[mask])
 
-                            gt_batch = torch.cat(gts, 0)
-                            output1_batch = torch.cat(outputs1, 0)
-                            output2_batch = torch.cat(outputs2, 0)
-                            output3_batch = torch.cat(outputs3, 0)
+                            gts = torch.cat(gts, 0)
+                            outputs1 = torch.cat(outputs1, 0)
+                            outputs2 = torch.cat(outputs2, 0)
+                            outputs3 = torch.cat(outputs3, 0)
+
                             optimizer.zero_grad()
-                            loss = 0.5 * F.smooth_l1_loss(output1_batch, gt_batch,
-                                                          size_average=True) + 0.7 * F.smooth_l1_loss(
-                                output2_batch, gt_batch, size_average=True) + F.smooth_l1_loss(output3_batch, gt_batch,
-                                                                                               size_average=True)
+
+                            loss = 0.5 * F.smooth_l1_loss(outputs1, gts, size_average=True) + 0.7 * F.smooth_l1_loss(
+                                outputs2, gts, size_average=True) + F.smooth_l1_loss(outputs3, gts, size_average=True)
+
                             loss.backward()
                             optimizer.step()
                             total_loss += loss.item()
                         disp_loss[i] = total_loss / EPOCHS
 
-                        if disp_loss[i] < best_loss:
+                        try:
                             # SAVE
                             savefilename = './checkpoint.tar'
                             torch.save({
@@ -330,12 +392,16 @@ def main():
                                 'train_loss': disp_loss[i],
                             }, savefilename)
 
+                            # best_loss = disp_loss[i]
+                        except:
+                            print("Cannot Save Checkpoint. Skip!")
+
                     # ---- Calculate Fitness ---
                     model.eval()
 
                     imgL, imgR, disp_true = get_item(left_img, right_img, disparity)
                     imgL, imgR, disp_true = (imgL.unsqueeze(0).to(device), imgR.unsqueeze(0).to(device),
-                                             disp_true.squeeze(0).to(device))
+                                             disp_true.squeeze(0).to(device=device, dtype=torch.float32))
 
                     mask = disp_true < 192
 
@@ -364,44 +430,69 @@ def main():
                         img = output3
 
                     if len(disp_true[mask]) == 0:
-                        loss = 0
+                        loss = torch.zeros(1)
                     else:
-                        loss = F.l1_loss(img[mask],
-                                         disp_true[
-                                             mask])
+                        loss = F.l1_loss(img[mask], disp_true[mask])
+
+                    depth_pred = cam.disparity_to_depth(img)
+
+                    error = np.abs(depth_gt - depth_pred)
+                    error = np.clip(error / np.max(error) * 255, 0, 255).astype(np.uint8)
+
+                    log_error = np.mean(np.abs(np.log(depth_gt + 1e-8) - np.log(depth_pred + 1e-8)))
+                    log_error_disp = np.mean(np.abs(np.log(disparity / new_population[i][1] + 1e-8) -
+                                                    np.log(img.cpu().numpy() / new_population[i][1] + 1e-8)))
+
+                    fitness[i] = 1 / log_error_disp
 
                     if not if_model_train:
                         disp_loss[i] = loss.data.cpu()
-
-                    fitness[i] = 1 / loss.data.cpu()
 
                     if fitness[i] > best_fitness:
                         best_fitness = fitness[i]
 
                     """ logging """
-                    print("Generation: {}, Solution: {}, Fitness: {}, Best Fitness: {}, Loss: {}, FOV: {}, "
-                          "Baseline: {}".format(generation, i, fitness[i], best_fitness, disp_loss[i],
+                    print("Generation: {}, Solution: {}, Disp Log Error: {}, Depth Log Error: {}, Fitness: {}, Loss: {},"
+                          " FOV: {}, Baseline: {}".format(generation, i, log_error_disp, log_error, fitness[i], disp_loss[i],
                                            new_population[i][0], new_population[i][1]))
+
+                    with open(log_file, 'a') as f:
+                        f.write(f'Generation: {generation}, Solution: {i}, Fitness: {fitness[i]}, Best Fitness: {best_fitness}, '
+                                f'Loss: {disp_loss[i]}, FOV: {new_population[i][0]}, Baseline: {new_population[i][1]}\n')
+
+                    cv2.imshow('LeftStream', left_img_disp)
+                    cv2.imshow('RightStream', error)
+                    cv2.imshow('GTDepthStream', depth_gt/1000)
+                    cv2.imshow('DepthStream', depth_pred/1000)
+
+                    if cv2.waitKey(1) == ord('q'):
+                        break
 
                 else:
                     world.wait_for_tick()
 
+                location = vehicle.get_location()
+
+                if tg.get_distance(location):
+                    route_finished = True
+
             # Optimize camera parameters
             if if_ga:
                 # Selecting the best parents in the population for mating.
-                parents = ga.select_mating_pool(new_population, fitness, int(sol_per_pop/2))
+                parents = ga.select_mating_pool(new_population, fitness,
+                                                int(Decimal(sol_per_pop / 2).quantize(0, ROUND_HALF_UP)))
 
-                parent_neglect_num = int(Decimal(parents.shape[0] / 3).quantize(0, ROUND_HALF_UP))
+                parent_neglect_num = int(Decimal(parents.shape[0] / 2).quantize(0, ROUND_HALF_DOWN))
 
                 # Generating next generation using crossover.
-                offspring_crossover = ga.crossover(parents, offspring_size=(sol_per_pop-parent_neglect_num-1, 2))
+                offspring_crossover = ga.crossover(parents, offspring_size=(sol_per_pop-parents.shape[0]+parent_neglect_num, 2))
 
                 # Adding some variations to the offspring using mutation.
                 offspring_mutation = ga.mutation(offspring_crossover)
 
                 # Creating the new population based on the parents and offspring.
-                new_population[0:parents.shape[0], :] = parents[0:parents.shape[0], :]
-                new_population[parents.shape[0]:, :] = offspring_mutation
+                new_population[0:(parents.shape[0]-parent_neglect_num), :] = parents[0:(parents.shape[0]-parent_neglect_num), :]
+                new_population[(parents.shape[0]-parent_neglect_num):, :] = offspring_mutation
             else:
                 new_population = ga.get_population(sol_per_pop, if_ga)
 
@@ -413,7 +504,7 @@ def main():
             settings.fixed_delta_seconds = None
             world.apply_settings(settings)
 
-        destroy_traffic(vehicles_list, walkers_list, client, all_id, all_actors)
+        tg.destroy_traffic(client, all_actors)
 
         time.sleep(0.5)
 
