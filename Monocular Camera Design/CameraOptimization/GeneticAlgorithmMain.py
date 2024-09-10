@@ -32,7 +32,7 @@ inlier_weight = 0.005 * 0.5
 inlier_ratio_weight = 0.5
 
 # True for using the fully discrete method
-if_fully_discrete = True
+if_fully_discrete = False
 
 # if optimize discrete variable with fully discrete method
 if if_fully_discrete:
