@@ -1,5 +1,6 @@
 # Data processing for the models 
-# The transform techniques are adopted from PSMNet implementation
+# The transform techniques are adopted from PSMNet (Chang et al., 2015) implementation
+# Sourced from https://github.com/JiaRenChang/PSMNet
 
 import numpy as np
 import random
