@@ -15,7 +15,7 @@ from ObjectDetect import ObjectDetectionTrainer
 from AddNoise import add_noise
 import os
 import glob
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, ROUND_HALF_DOWN
 
 # load the image sensor dataset
 image_sensor_catalog = pd.read_excel('Sensors Catalog.xlsx')
@@ -193,12 +193,12 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             best_match_idx = [a for b in best_match_idx for a in b]
 
             # Selecting the best parents in the population for mating.
-            parents = ga.select_mating_pool(new_population, fitness, num_parents_mating)
+            parents = ga.select_mating_pool(new_population, fitness, int(Decimal(sol_per_pop / 2).quantize(0, ROUND_HALF_UP)))
 
-            parent_neglect_num = int(Decimal(parents.shape[0] / 3).quantize(0, ROUND_HALF_UP))
+            parent_neglect_num = int(Decimal(parents.shape[0] / 2).quantize(0, ROUND_HALF_DOWN))
 
             # Generating next generation using crossover.
-            offspring_crossover = ga.crossover(parents, offspring_size=(sol_per_pop-parent_neglect_num-1, num_weights))
+            offspring_crossover = ga.crossover(parents, offspring_size=(sol_per_pop-parents.shape[0]+parent_neglect_num, num_weights))
 
             # Adding some variations to the offspring using mutation.
             offspring_mutation = ga.mutation(offspring_crossover, catalog_minimums, catalog_maximums, if_fully_discrete)
