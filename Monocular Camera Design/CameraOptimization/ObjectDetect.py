@@ -105,7 +105,7 @@ class ObjectDetectionTrainer:
 
         train_data, val_data = torch.utils.data.random_split(dataset, [train_size, val_size])
 
-        batch_num = 4
+        batch_num = 8
 
         train_loader = DataLoader(train_data, batch_size=batch_num, shuffle=True, collate_fn=collate_fn)
         val_loader = DataLoader(val_data, batch_size=batch_num, shuffle=True, collate_fn=collate_fn)
