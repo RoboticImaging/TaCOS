@@ -103,14 +103,13 @@ class Camera:
 
         # Compute the depth in meters
         depth = (r + 256.0 * g + 256.0 ** 2 * b) / (256.0 ** 3 - 1.0) * 1000
-        disparity = ((self.img_x / (2.0 * np.tan(self.fov * np.pi / 360.0))) * self.baseline) / depth
+        disparity = ((self.img_x / (2.0 * np.tan(self.fov * np.pi / 360.0))) * self.baseline) / (depth + 1e-8)
 
-        return disparity
+        return disparity, depth
 
     # Convert disparity to depth map
     def diparity_to_depth(self, disparity):
-        depth = ((self.img_x / (2.0 * np.tan(self.fov * np.pi / 360.0))) * self.baseline) / (disparity + 1e-6)
-        depth = depth.cpu().numpy()
-        depth = np.clip(depth / np.max(depth) * 255, 0, 255).astype(np.uint8)
+        disparity = disparity.cpu().numpy()
+        depth = ((self.img_x / (2.0 * np.tan(self.fov * np.pi / 360.0))) * self.baseline) / (disparity + 1e-8)
 
         return depth
