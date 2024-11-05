@@ -28,3 +28,16 @@ The simulator that procedurally generates virtual indoor environments is placed 
 
 ### Camera Optimization
 The codes that optimize the camera are placed in the CameraOptimization folder. To start the camera optimization, first click the Run button in the Unreal Engine Editor and then run GeneticAlgorithmMain.py.
+
+## Citation
+If you find our work useful, please cite the below paper:
+```
+@article{yan2024tacos,
+  title = {TaCOS: Task-Specific Camera Optimization with Simulation},
+  author = {Chengyang Yan and Donald G. Dansereau},
+  journal = {arXiv preprint arXiv:2404.11031},
+  URL = {https://arxiv.org/abs/2404.11031},
+  year = {2024},
+  month = apr
+}
+```
